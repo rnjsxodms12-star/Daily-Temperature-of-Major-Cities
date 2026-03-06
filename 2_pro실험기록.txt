@@ -1,0 +1,352 @@
+import pandas as pd
+
+df = pd.read_csv("city_temperature.csv")
+
+print(df.shape)
+print(df.head())
+
+print(df.isna().sum())
+print(df["City"].nunique())
+print(df["Country"].nunique())
+
+print(df["Year"].min(), df["Year"].max())
+로 데이터 로드함 
+->
+df["date"] = pd.to_datetime(df[["Year","Month","Day"]])
+df = df.sort_values(["City","date"])
+-> 실패
+-> 58204번째 행에서 잘못된 날짜 발견
+->
+# 에러가 발생한 위치 주변 데이터를 확인 (인덱스가 아니라 58204번째 위치 근처)
+print(df.iloc[58200:58210])
+
+# 혹은 상식 밖의 데이터가 있는지 직접 조회
+invalid_days = df[(df['Month'] == 2) & (df['Day'] > 29)]
+print(invalid_days)
+로 확인
+-> 
+import pandas as pd
+
+# 날짜 조합 시도 (errors='coerce'로 잘못된 날짜는 NaT 처리)
+df["date"] = pd.to_datetime(df[["Year","Month","Day"]], errors="coerce")
+
+# NaT가 된 행 확인
+invalid_dates = df[df["date"].isna()]
+print(invalid_dates)
+로 결측치 제거
+->
+df["date"] = pd.to_datetime(df[["Year","Month","Day"]])
+df = df.sort_values(["City","date"]) 다시 실패
+-> 
+import pandas as pd
+
+# 1. 연, 월, 일을 문자열로 합칩니다. (예: "2026-2-30")
+date_series = (
+    df["Year"].astype(str) + "-" + 
+    df["Month"].astype(str) + "-" + 
+    df["Day"].astype(str)
+)
+
+# 2. 이 문자열 시리즈를 변환합니다. 여기서 'coerce'는 오작동 없이 NaT를 만들어줍니다.
+df["date"] = pd.to_datetime(date_series, errors="coerce")
+
+# 3. NaT가 발생한 행(58204번째 포함) 확인
+print("잘못된 날짜 행 수:", df["date"].isna().sum())
+print(df[df["date"].isna()].head())
+
+# 4. 정렬 진행
+df = df.sort_values(["City", "date"])
+로 성공
+-> 
+잘못된 날짜행수 448개 확인 
+-> print(df['Year'].unique()) # 201 외에 또 다른 이상한 숫자가 있는지 확인
+-> 201, 200 발견함, 온도가 -99인 데이터도 발견함.
+-> # 1. 날짜 변환 (문자열 결합 방식 + coerce)
+df["date"] = pd.to_datetime(
+    df["Year"].astype(str) + "-" + df["Month"].astype(str) + "-" + df["Day"].astype(str), 
+    errors="coerce"
+)
+
+# 2. NaT(200, 201년 등)인 행 삭제
+df = df.dropna(subset=['date'])
+
+# 3. 정렬 수행
+df = df.sort_values(["City", "date"])
+
+print("정리 후 데이터 크기:", df.shape)
+print("연도 확인:", sorted(df['Year'].unique()))
+로 200, 201 행삭제.
+-> # 가장 많이 등장하는 온도 값 Top 20 확인
+print("--- 빈도수가 높은 온도 값 Top 20 ---")
+print(df["AvgTemperature"].value_counts().head(20))
+
+# 전체 온도 종류의 개수
+print(f"\n전체 온도의 고유값 개수: {df['AvgTemperature'].nunique()}개")
+로 확인해봤는데 --- 빈도수가 높은 온도 값 Top 20 ---
+AvgTemperature
+-99.0    79224
+ 80.2     7442
+ 80.8     7362
+ 81.1     7247
+ 79.2     7241
+ 80.5     7223
+ 82.0     7199
+ 79.8     7170
+ 81.3     7069
+ 79.0     7061
+ 79.5     7052
+ 81.7     7040
+ 79.3     7011
+ 80.4     7009
+ 79.6     6959
+ 82.2     6957
+ 81.0     6940
+ 81.5     6928
+ 79.7     6907
+ 80.6     6894
+Name: count, dtype: int64
+
+전체 온도의 고유값 개수: 1517개
+
+-> 
+print("--- 온도 데이터 요약 통계 ---")
+print(df["AvgTemperature"].describe())
+이거로는 알 수가 없어서.      
+ps. 빈도수 상위권을 보면 80.2, 80.8 같은 값들이 보이는데 화씨인 거로 보임 [섭26도]
+
+-> import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize=(10, 6))
+sns.histplot(df["AvgTemperature"], bins=50, kde=True)
+plt.title("Distribution of Average Temperature")
+plt.xlabel("Temperature")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+이거로 시각화 해보니까 눈으로 봤을 때, -80도~-40도까지 비어있음
+-50도 이하부터는 전부 이상치로 봐도 무방할 듯 함.
+->
+[화씨를 섭씨로 정제하는 경우 .txt파일 있음]
+import pandas as pd
+
+# 1. 날짜 변환 및 결측치(NaT) 처리
+# 이미 진행하셨던 문자열 결합 방식을 사용하여 안전하게 변환합니다.
+df["date"] = pd.to_datetime(
+    df["Year"].astype(str) + "-" + df["Month"].astype(str) + "-" + df["Day"].astype(str), 
+    errors="coerce"
+)
+
+# 2. 유효하지 않은 날짜(NaT)와 이상치(-50도 이하) 제거
+# 사용자님이 발견하신 '비어있는 구간'을 기준으로 필터링합니다.
+df_refined = df.dropna(subset=['date']).copy()
+df_refined = df_refined[df_refined["AvgTemperature"] > -50]
+
+# 3. 도시와 날짜순으로 정렬
+df_refined = df_refined.sort_values(["City", "date"])
+
+# --- 결과 확인 ---
+print(f"정제 전 데이터 수: {len(df)}")
+print(f"정제 후 데이터 수: {len(df_refined)}")
+print(f"삭제된 이상치 수: {len(df) - len(df_refined)}")
+
+print("\n--- 정제 후 온도 요약 (°F) ---")
+print(df_refined["AvgTemperature"].describe())
+
+# 잘 정제되었는지 고유값 상위 5개 확인 (이제 -99.0이 없어야 합니다)
+print("\n--- 정제 후 빈도수 높은 온도 Top 5 ---")
+print(df_refined["AvgTemperature"].value_counts().head(5))
+로 이상치 79225개 삭제.
+-> 
+전처리 어느 정도 끝난 상태임.
+-> 중복데이터, 특정도시의 빈 기간 확인 및 화씨 확인한 걸 단위표기 
+* #df_refined = df_refined.rename(columns={"AvgTemperature": "AvgTemp_F"}) *
+-> 
+그런데 
+# 중복된 행이 있는지 확인
+duplicates = df_refined.duplicated(subset=['City', 'date']).sum()
+print(f"중복된 날짜 데이터: {duplicates}건")
+
+# 만약 있다면 제거
+# df_refined = df_refined.drop_duplicates(subset=['City', 'date'])
+여기서 중복된 날짜 데이터: 57248건 발견 됨.
+-> # 'City'와 'date'가 모두 똑같은 행들 중 하나만 남기고 삭제
+df_refined = df_refined.drop_duplicates(subset=['City', 'date'], keep='first')
+
+print(f"중복 제거 후 데이터 수: {len(df_refined)}")
+한 도시(City) 안에 똑같은 날짜(Date)가 두 번 이상 들어가 있는 경우 제거.
+-> 전처리가 잘 되었는지 "그래프"로 최종 검증
+import matplotlib.pyplot as plt
+
+# 1. 데이터가 가장 많은 도시 확인 (예: 'Tokyo' 혹은 'Chicago' 등)
+top_city = df_refined['City'].value_counts().idxmax()
+city_data = df_refined[df_refined['City'] == top_city]
+
+# 2. 시각화
+plt.figure(figsize=(15, 6))
+plt.plot(city_data['date'], city_data['AvgTemperature'], linewidth=0.5, color='#1f77b4')
+plt.title(f"Temperature Trend of {top_city} (1995-2020)")
+plt.xlabel("Year")
+plt.ylabel("Temperature (°F)")
+plt.grid(True, alpha=0.3)
+plt.show()
+-> 이제 전처리 끝났으니 csv파일을 새로 만들어서 저장
+# index=False를 설정해야 0, 1, 2... 같은 인덱스 번호가 파일에 추가로 저장되지 않습니다.
+df_refined.to_csv("city_temperature_cleaned.csv", index=False)
+
+print("정제된 데이터가 'city_temperature_cleaned.csv'로 저장되었습니다!")
+-> 
+# 새 노트북에서 불러오는 경우 실행
+df = pd.read_csv("city_temperature_cleaned.csv", parse_dates=['date'])
+-> 새로 만들어진 정제된 csv파일 상태 전체적으로 재확인 필요함
+
+-> import pandas as pd
+
+# 1. 저장된 파일 불러오기
+df_final = pd.read_csv("city_temperature_cleaned.csv", parse_dates=['date'])
+
+print("--- [최종 데이터 상태 보고서] ---")
+
+# 검증 1: 데이터 크기 및 결측치
+print(f"1. 전체 데이터 수: {len(df_final)}개")
+print(f"2. 전체 결측치 수:\n{df_final.isna().sum()}")
+
+# 검증 2: 연도 범위 (200, 201이 사라졌는지 확인)
+print(f"\n3. 연도 범위: {df_final['Year'].min()} ~ {df_final['Year'].max()}")
+
+# 검증 3: 온도 범위 (이상치 -99.0 및 -50 이하가 사라졌는지 확인)
+print(f"4. 온도 범위 (°F): {df_final['AvgTemperature'].min()} ~ {df_final['AvgTemperature'].max()}")
+
+# 검증 4: 중복 데이터 (0건이어야 함)
+dup_count = df_final.duplicated(subset=['City', 'date']).sum()
+print(f"5. 도시별 중복 날짜 데이터 수: {dup_count}건")
+
+# 검증 5: 데이터 타입 확인 (date가 datetime64인지 확인)
+print(f"6. 데이터 타입:\n{df_final.dtypes}")
+-> 중복데이터0, 온도 및 연도 범위: -49.1 ~ 110.0°F와 1995 ~ 2020년, 
+State 컬럼의 결측치는 원래 다른 도시들은 첨부터 비어있었음, 
+Data Type: date 컬럼이 datetime64[ns]로 정확히 인식
+-> 
+도시 수 확인df_final["City"].nunique(), 
+->
+도시별 데이터 길이
+city_counts = df_final.groupby("City").size()
+print(city_counts.describe())
+->
+# 데이터 개수가 적은(예: 8000~9000개 미만) 도시들 확인
+low_data_cities = city_counts[city_counts < 9000]
+print("--- 데이터가 부족한 도시 목록 ---")
+print(low_data_cities.sort_values())
+-> Length: 69 (9,000개 미만)와 Length: 40 (8,000개 미만)
+*제외된 도시들 이름 여기서 확인가능
+
+여기서 중요한 게 9000개 제외한 것, 8천개 제외한 것으로 할지
+아니면 전체데이터로 할지 갈림.
+320개 데이터, 280개 데이터, 250개 데이터 순.
+정제된 city_temperature_cleaned.csv 파일 확인.
+
+---분기점---
+
+도시별 결측 날짜 확인 (정제된 데이터에서 특정 도시의 날짜 연속성을 확인)
+city = df_final[df_final["City"]=="Tokyo"]
+
+city = city.sort_values("date")
+
+missing = city["date"].diff().value_counts()
+
+print(missing.head())
+-> 모든 도시 확인용
+gap_stats = []
+
+for city_name, group in df_final.groupby("City"):
+    gaps = group.sort_values("date")["date"].diff().dt.days
+    max_gap = gaps.max()
+    gap_stats.append((city_name, max_gap))
+
+gap_df = pd.DataFrame(gap_stats, columns=["City", "MaxGapDays"])
+print(gap_df.sort_values("MaxGapDays", ascending=False).head(10))
+-> 
+# 1. 데이터가 8,000개 이상인 도시 리스트
+valid_count_cities = city_counts[city_counts >= 8000].index
+
+# 2. 날짜 간격(Gap)이 1년(365일) 미만인 도시 리스트 (방금 만드신 gap_df 활용)
+valid_gap_cities = gap_df[gap_df["MaxGapDays"] < 365]["City"]
+
+# 3. 두 조건을 모두 만족하는 '우량 도시'만 추출
+final_valid_cities = list(set(valid_count_cities) & set(valid_gap_cities))
+
+df_final_clean = df_final[df_final["City"].isin(final_valid_cities)].copy()
+
+print(f"최종 분석 대상 도시 수: {len(final_valid_cities)}개")
+-> 272개
+# 1. 8000개 이상 데이터를 가진 도시 리스트업
+valid_cities = city_counts[city_counts >= 8000].index
+
+# 2. 해당 도시들만 필터링한 최종 분석용 데이터프레임
+df_analysis = df_final[df_final['City'].isin(valid_cities)].copy()
+
+print(f"최종 분석 대상 도시 수: {df_analysis['City'].nunique()}개")
+-> 273개
+# 8000개 이상이지만 Gap이 365일 이상인 그 도시 찾기
+diff_city = set(valid_count_cities) - set(final_valid_cities)
+print(f"필터링에서 탈락한 1개의 도시는: {diff_city}")
+
+# 그 도시의 MaxGapDays가 얼마였는지 확인
+print(gap_df[gap_df["City"].isin(diff_city)])
+-> 필터링에서 탈락한 1개의 도시는: {'Sofia'}
+      City  MaxGapDays
+276  Sofia       367.0
+->  
+# 1. 272개 정예 도시 데이터만 추출 (df_final_clean 생성)
+df_final_clean = df_final[df_final["City"].isin(final_valid_cities)].copy()
+
+# 2. 파일 저장 (이름을 구분하기 쉽게 'final_272'를 붙였습니다)
+df_final_clean.to_csv("city_temperature_final_272.csv", index=False)
+
+print("--- [최종 저장 완료] ---")
+print(f"대상 도시 수: {df_final_clean['City'].nunique()}개")
+print(f"전체 행 수: {len(df_final_clean)}행")
+print("파일명: city_temperature_final_272.csv")
+-> 모델링용 데이터 정제 완료. 272개의 도시데이터 csv파일 생성
+--- EDA용 탐색 + 전처리 종료 ---
+-> 새로만든 272개의 도시 csv파일로 EDA 시작
+-> 
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 1. 정제된 데이터 로드
+df = pd.read_csv("city_temperature_final_272.csv", parse_dates=['date'])
+
+# 2. 연도별 평균 기온 계산
+yearly_avg = df.groupby('Year')['AvgTemperature'].mean()
+
+# 3. 시각화
+plt.figure(figsize=(12, 6))
+sns.lineplot(x=yearly_avg.index, y=yearly_avg.values, marker='o', color='crimson')
+plt.title("Global Average Temperature Trend (1995-2020) - 272 Cities", fontsize=15)
+plt.xlabel("Year")
+plt.ylabel("Average Temperature (°F)")
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.show()
+시각화를 했더니 2020년 기온이 바닥으로 뚝 떨어졌다. 2020년 데이터를 봐야
+-> 
+import pandas as pd
+
+# 1. 정제 완료된 파일을 다시 불러오기
+df_final_clean = pd.read_csv("city_temperature_final_272.csv", parse_dates=['date'])
+
+# 2. 2020년 데이터만 추출
+df_2020 = df_final_clean[df_final_clean['Year'] == 2020]
+
+# 3. 2020년의 월별 데이터 개수 확인
+print("--- 2020년 월별 데이터 분포 ---")
+print(df_2020['Month'].value_counts().sort_index())
+
+# 4. 2020년의 마지막 기록 날짜 확인
+print(f"\n2020년 최종 기록일: {df_2020['date'].max()}")
+-> 2020년 4월까지 8천이다가, 5월에 3천, 그리고 그 이후는 없는 걸 확인했다.
+***2020년 데이터는 일부 도시만 4월까지 있으니, 모델링할 때 2020년 포함 여부
+->
+시작하기 전에 내가 가진 데이터는 뭔지, 어떤 가치가 있는지 확인하기. 
+-> 
